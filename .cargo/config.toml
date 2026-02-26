@@ -1,2 +1,3 @@
 [registries.valyu-sxurl]
 index = "sparse+https://valyu-627665855519.d.codeartifact.eu-north-1.amazonaws.com/cargo/sxsurl/"
+credential-provider = "cargo:token"
