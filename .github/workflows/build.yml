@@ -1,0 +1,164 @@
+name: Consumer Rust Build Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-north-1
+  CODEARTIFACT_DOMAIN: valyu
+  CODEARTIFACT_DOMAIN_OWNER: "627665855519"
+  CODEARTIFACT_REPOSITORY: sxsurl
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.set-env.outputs.environment }}
+      code_changed: ${{ steps.check-changes.outputs.code_changed }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set environment based on branch/target
+        id: set-env
+        run: |
+          TARGET_BRANCH=""
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            TARGET_BRANCH="${{ github.base_ref }}"
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            TARGET_BRANCH="${{ github.ref_name }}"
+          fi
+
+          echo "Determined target branch: $TARGET_BRANCH"
+
+          if [[ "$TARGET_BRANCH" == "main" ]]; then
+            echo "environment=prod" >> $GITHUB_OUTPUT
+          elif [[ "$TARGET_BRANCH" == "dev" ]]; then
+            echo "environment=dev" >> $GITHUB_OUTPUT
+          else
+            echo "environment=unknown" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check for changes
+        id: check-changes
+        run: |
+          if [[ "${{ github.event_name }}" == "push" || "${{ github.event_name }}" == "pull_request" ]]; then
+            if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+              BASE_SHA=${{ github.event.pull_request.base.sha }}
+              CURRENT_SHA=${{ github.event.pull_request.head.sha }}
+            else
+              BASE_SHA=${{ github.event.before }}
+              CURRENT_SHA=${{ github.event.after }}
+
+              if [[ "$BASE_SHA" == "0000000000000000000000000000000000000000" ]]; then
+                echo "First push to branch detected"
+                echo "code_changed=true" >> $GITHUB_OUTPUT
+                exit 0
+              fi
+            fi
+
+            DIFF_OUTPUT=$(git diff --name-only $BASE_SHA $CURRENT_SHA)
+            echo "Files changed:"
+            echo "$DIFF_OUTPUT"
+
+            if echo "$DIFF_OUTPUT" | grep -qE '^(src/|Cargo\.(toml|lock)|Dockerfile|\.github/workflows/)'; then
+              echo "Code changes detected"
+              echo "code_changed=true" >> $GITHUB_OUTPUT
+            else
+              echo "No code changes detected"
+              echo "code_changed=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "code_changed=true" >> $GITHUB_OUTPUT
+          fi
+
+  debug-info:
+    needs: setup
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Dump setup outputs
+        run: |
+          echo "--- Debug Information ---"
+          echo "Setup Job Result: ${{ needs.setup.result }}"
+          echo "GitHub Event Name: ${{ github.event_name }}"
+          echo "GitHub Ref Name: ${{ github.ref_name }}"
+          echo "Environment: ${{ needs.setup.outputs.environment }}"
+          echo "Code Changed: ${{ needs.setup.outputs.code_changed }}"
+          echo "-----------------------"
+
+  build:
+    needs: setup
+    runs-on: ubuntu-latest
+    if: needs.setup.outputs.code_changed == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::627665855519:role/github-actions-consumer-rust
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get CodeArtifact auth token
+        id: codeartifact
+        run: |
+          AUTH_TOKEN=$(aws codeartifact get-authorization-token \
+            --domain ${{ env.CODEARTIFACT_DOMAIN }} \
+            --domain-owner ${{ env.CODEARTIFACT_DOMAIN_OWNER }} \
+            --region ${{ env.AWS_REGION }} \
+            --query authorizationToken \
+            --output text)
+          echo "::add-mask::$AUTH_TOKEN"
+          echo "token=$AUTH_TOKEN" >> $GITHUB_OUTPUT
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Configure cargo registry credentials
+        run: |
+          mkdir -p ~/.cargo
+          cat >> ~/.cargo/credentials.toml <<EOF
+          [registries.valyu-sxurl]
+          token = "Bearer ${{ steps.codeartifact.outputs.token }}"
+          EOF
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Run tests
+        run: cargo test --release
+
+      - name: Build summary
+        run: |
+          echo "Build completed successfully"
+          echo "Environment: ${{ needs.setup.outputs.environment }}"
+          echo "Commit: ${{ github.sha }}"
