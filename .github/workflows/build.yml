@@ -120,17 +120,6 @@ jobs:
           role-to-assume: arn:aws:iam::627665855519:role/github-actions-consumer-rust
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Authenticate with CodeArtifact
-        run: |
-          AUTH_TOKEN=$(aws codeartifact get-authorization-token \
-            --domain ${{ env.CODEARTIFACT_DOMAIN }} \
-            --domain-owner ${{ env.CODEARTIFACT_DOMAIN_OWNER }} \
-            --region ${{ env.AWS_REGION }} \
-            --query authorizationToken \
-            --output text)
-          echo "::add-mask::$AUTH_TOKEN"
-          cargo login --registry valyu-sxurl "Bearer ${AUTH_TOKEN}"
-
       - name: Cache cargo dependencies
         uses: actions/cache@v4
         with:
@@ -141,6 +130,17 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
+
+      - name: Authenticate with CodeArtifact
+        run: |
+          AUTH_TOKEN=$(aws codeartifact get-authorization-token \
+            --domain ${{ env.CODEARTIFACT_DOMAIN }} \
+            --domain-owner ${{ env.CODEARTIFACT_DOMAIN_OWNER }} \
+            --region ${{ env.AWS_REGION }} \
+            --query authorizationToken \
+            --output text)
+          echo "::add-mask::$AUTH_TOKEN"
+          echo "Bearer ${AUTH_TOKEN}" | cargo login --registry valyu-sxurl
 
       - name: Build
         run: cargo build --release
