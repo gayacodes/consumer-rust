@@ -140,7 +140,10 @@ jobs:
             --query authorizationToken \
             --output text)
           echo "::add-mask::$AUTH_TOKEN"
-          echo "Bearer ${AUTH_TOKEN}" | cargo login --registry valyu-sxurl
+          mkdir -p ~/.cargo
+          printf '[registries.valyu-sxurl]\ntoken = "Bearer %s"\n' "${AUTH_TOKEN}" > ~/.cargo/credentials.toml
+          echo "Credentials written. Verifying format:"
+          sed 's/token = .*/token = "Bearer ***"/' ~/.cargo/credentials.toml
 
       - name: Build
         run: cargo build --release
