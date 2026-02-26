@@ -143,18 +143,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Configure cargo registry credentials
-        run: |
-          mkdir -p ~/.cargo
-          cat >> ~/.cargo/credentials.toml <<EOF
-          [registries.valyu-sxurl]
-          token = "Bearer ${{ steps.codeartifact.outputs.token }}"
-          EOF
-
       - name: Build
+        env:
+          CARGO_REGISTRIES_VALYU_SXURL_TOKEN: "Bearer ${{ steps.codeartifact.outputs.token }}"
         run: cargo build --release
 
       - name: Run tests
+        env:
+          CARGO_REGISTRIES_VALYU_SXURL_TOKEN: "Bearer ${{ steps.codeartifact.outputs.token }}"
         run: cargo test --release
 
       - name: Build summary
