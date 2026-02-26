@@ -141,7 +141,7 @@ jobs:
             --output text)
           echo "::add-mask::$AUTH_TOKEN"
           mkdir -p ~/.cargo
-          printf '[registries.valyu-sxurl]\ntoken = "Bearer %s"\n' "${AUTH_TOKEN}" > ~/.cargo/credentials.toml
+          printf '[registries.valyu-sxurl]\ntoken = "%s"\n' "${AUTH_TOKEN}" > ~/.cargo/credentials.toml
           echo "Credentials written. Verifying format:"
           sed 's/token = .*/token = "Bearer ***"/' ~/.cargo/credentials.toml
 
