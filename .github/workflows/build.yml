@@ -117,8 +117,7 @@ jobs:
           role-to-assume: arn:aws:iam::627665855519:role/github-actions-consumer-rust
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Get CodeArtifact auth token
-        id: codeartifact
+      - name: Get CodeArtifact auth token and login
         run: |
           AUTH_TOKEN=$(aws codeartifact get-authorization-token \
             --domain ${{ env.CODEARTIFACT_DOMAIN }} \
@@ -127,7 +126,9 @@ jobs:
             --query authorizationToken \
             --output text)
           echo "::add-mask::$AUTH_TOKEN"
-          echo "token=$AUTH_TOKEN" >> $GITHUB_OUTPUT
+
+          # Login to the registry
+          cargo login --registry valyu-sxurl "Bearer ${AUTH_TOKEN}"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -144,13 +145,9 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Build
-        env:
-          CARGO_REGISTRIES_VALYU_SXURL_TOKEN: "Bearer ${{ steps.codeartifact.outputs.token }}"
         run: cargo build --release
 
       - name: Run tests
-        env:
-          CARGO_REGISTRIES_VALYU_SXURL_TOKEN: "Bearer ${{ steps.codeartifact.outputs.token }}"
         run: cargo test --release
 
       - name: Build summary
